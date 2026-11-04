@@ -11,34 +11,39 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from app.config import get_settings
 from app.utils.logging import get_logger, setup_logging
 
-logger = get_logger(__name__)
-
 
 async def _build_storage():
     settings = get_settings()
+    log = get_logger("main")
     try:
         from aiogram.fsm.storage.redis import RedisStorage
         from redis.asyncio import Redis
 
-        redis = Redis.from_url(settings.redis_url)
+        redis = Redis.from_url(settings.redis_url, socket_connect_timeout=5)
         await redis.ping()
-        logger.info("fsm_storage", backend="redis")
+        log.info("fsm_storage", backend="redis")
         return RedisStorage(redis=redis)
     except Exception as exc:
-        logger.warning("redis_unavailable_fallback_memory", error=str(exc))
+        # Fallback: bot still works, FSM only in memory
+        try:
+            log.warning("redis_unavailable_fallback_memory", error=str(exc))
+        except Exception:
+            print(f"redis unavailable, using MemoryStorage: {exc}", flush=True)
         return MemoryStorage()
 
 
 async def main() -> None:
     setup_logging()
+    log = get_logger("main")
     settings = get_settings()
 
-    if not settings.bot_token.get_secret_value() or settings.bot_token.get_secret_value().startswith("123456"):
-        logger.error("BOT_TOKEN is missing or placeholder — set it in environment")
+    token = settings.bot_token.get_secret_value()
+    if not token or token.startswith("123456"):
+        print("BOT_TOKEN is missing — set it in Railway Variables", flush=True)
         raise SystemExit(1)
 
     bot = Bot(
-        token=settings.bot_token.get_secret_value(),
+        token=token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     storage = await _build_storage()
@@ -49,10 +54,13 @@ async def main() -> None:
     setup_routers(dp)
 
     use_polling = settings.use_polling or not settings.webhook_host
-    logger.info(
+    log.info(
         "starting_bot",
         mode="polling" if use_polling else "webhook",
         brand=settings.brand_name,
+        platega=settings.platega_enabled,
+        cryptobot=settings.cryptobot_enabled,
+        fragment_seed=bool(settings.ton_mnemonic.get_secret_value().strip()),
     )
 
     if use_polling:
@@ -63,7 +71,6 @@ async def main() -> None:
 
         from app.integrations.platega.webhook import setup_platega_webhook
 
-        # Simple health for Railway
         async def health(_request: web.Request) -> web.Response:
             return web.json_response({"status": "ok"})
 
@@ -72,13 +79,12 @@ async def main() -> None:
         app.router.add_get("/", health)
         setup_platega_webhook(app)
 
-        # Telegram webhook can be set externally; polling is recommended for first Railway deploy
         port = int(os.environ.get("PORT", "8080"))
         runner = web.AppRunner(app)
         await runner.setup()
         site = web.TCPSite(runner, "0.0.0.0", port)
         await site.start()
-        logger.info("http_server_started", port=port)
+        log.info("http_server_started", port=port)
         await asyncio.Event().wait()
 
 
