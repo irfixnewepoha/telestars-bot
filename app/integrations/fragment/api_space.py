@@ -5,7 +5,6 @@ Buy Stars via https://api.fragment-api.space
 Seed MUST be Base64(utf-8 mnemonic words), not plain text.
 """
 
-from __future__ import annotations
 
 import asyncio
 import base64

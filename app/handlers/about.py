@@ -13,7 +13,7 @@ router = Router(name="about")
 @router.callback_query(F.data == "menu:about")
 async def menu_about(callback: CallbackQuery) -> None:
     if callback.message:
-        await callback.message.edit_text(t.ABOUT, reply_markup=about_kb())
+        await callback.message.edit_text(t.ABOUT.format(brand=t.brand()), reply_markup=about_kb())
     await callback.answer()
 
 
@@ -21,7 +21,7 @@ async def menu_about(callback: CallbackQuery) -> None:
 async def about_faq(callback: CallbackQuery) -> None:
     settings = get_settings()
     if callback.message:
-        await callback.message.edit_text(settings.faq_text, reply_markup=home_only())
+        await callback.message.edit_text(getattr(t, 'FAQ_TEXT', None) or settings.faq_text, reply_markup=home_only())
     await callback.answer()
 
 

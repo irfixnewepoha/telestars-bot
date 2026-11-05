@@ -32,7 +32,7 @@ async def menu_profile(callback: CallbackQuery) -> None:
 async def profile_history(callback: CallbackQuery) -> None:
     if callback.message:
         await callback.message.edit_text(
-            "История заказов пока пуста.", reply_markup=home_only()
+            "🧾 <b>История заказов</b>\n────────────────────\n\nПока заказов нет.\nКупите Stars — и они появятся здесь.", reply_markup=home_only()
         )
     await callback.answer()
 

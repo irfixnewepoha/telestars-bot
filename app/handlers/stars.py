@@ -87,6 +87,58 @@ async def stars_self(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
+
+
+@router.callback_query(F.data.startswith("stars:qty:"), BuyStars.enter_amount)
+async def stars_qty_btn(callback: CallbackQuery, state: FSMContext) -> None:
+    """Quick amount from keyboard."""
+    try:
+        amount = int((callback.data or "").split(":")[-1])
+    except ValueError:
+        await callback.answer("Неверное число", show_alert=True)
+        return
+    settings = get_settings()
+    if amount < settings.min_stars or amount > settings.max_stars:
+        await callback.answer("Количество вне лимита", show_alert=True)
+        return
+    # reuse amount flow via fake message logic
+    data = await state.get_data()
+    recipient = data.get("recipient", "?")
+    name = data.get("recipient_name")
+    name_part = f" ({name})" if name else ""
+    price_rub = round(amount * settings.star_price_rub, 2)
+    price_ton = float(
+        (Decimal(str(amount)) * Decimal(str(settings.star_price_ton))).quantize(
+            Decimal("0.0001"), rounding=ROUND_UP
+        )
+    )
+    order_id = str(uuid.uuid4())
+    await state.update_data(
+        stars=amount,
+        price_rub=price_rub,
+        price_ton=price_ton,
+        price_kop=int(round(price_rub * 100)),
+        order_id=order_id,
+    )
+    await state.set_state(BuyStars.confirm)
+    ton_s = f"{price_ton:.4f}".rstrip("0").rstrip(".")
+    text = t.STARS_CONFIRM.format(
+        username=recipient,
+        name_part=name_part,
+        stars=amount,
+        price_rub=price_rub,
+        price_ton=ton_s,
+    )
+    if callback.message:
+        await callback.message.edit_text(
+            text,
+            reply_markup=stars_confirm(
+                can_sbp=settings.platega_enabled,
+                can_crypto=settings.cryptobot_enabled,
+            ),
+        )
+    await callback.answer()
+
 @router.message(BuyStars.choose_recipient)
 async def stars_username_input(message: Message, state: FSMContext) -> None:
     clean = normalize_username(message.text or "")
@@ -137,13 +189,14 @@ async def stars_amount_input(message: Message, state: FSMContext) -> None:
         order_id=order_id,
     )
     await state.set_state(BuyStars.confirm)
+    ton_s = f"{price_ton:.4f}".rstrip("0").rstrip(".")
     text = t.STARS_CONFIRM.format(
         username=recipient,
         name_part=name_part,
         stars=amount,
         price_rub=price_rub,
+        price_ton=ton_s,
     )
-    text += f"\n\n💎 ≈ <b>{price_ton}</b> TON"
     await message.answer(
         text,
         reply_markup=stars_confirm(
@@ -227,8 +280,10 @@ async def pay_sbp(callback: CallbackQuery, state: FSMContext) -> None:
         pay_url=pay_url,
     )
     await state.set_state(BuyStars.awaiting_payment)
-    text = t.STARS_PAYMENT.format(
+    text = t.STARS_PAYMENT_SBP.format(
         order_id=order_id[:8],
+        stars=stars,
+        username=recipient,
         price_rub=price_rub,
         ttl_min=settings.order_ttl_min,
     )
@@ -277,12 +332,13 @@ async def pay_crypto(callback: CallbackQuery, state: FSMContext) -> None:
         pay_url=pay_url,
     )
     await state.set_state(BuyStars.awaiting_payment)
-    text = (
-        f"💎 <b>Оплата TON</b>\n\n"
-        f"Заказ: <code>{order_id[:8]}</code>\n"
-        f"Сумма: <b>{amount_str} {settings.cryptobot_asset}</b>\n"
-        f"⭐ {stars} → @{recipient}\n\n"
-        f"Нажмите «Перейти к оплате», затем «Проверить оплату»."
+    text = t.STARS_PAYMENT_CRYPTO.format(
+        order_id=order_id[:8],
+        stars=stars,
+        username=recipient,
+        amount=amount_str,
+        asset=settings.cryptobot_asset,
+        ttl_min=settings.order_ttl_min,
     )
     if callback.message:
         await callback.message.edit_text(
